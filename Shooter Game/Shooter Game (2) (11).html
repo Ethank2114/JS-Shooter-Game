@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Shooter Game</title>
+		<style type="text/css">
+			.canvas {
+				border: 1px solid black;
+			}
+		</style>
+	</head>
+	<body>
+		<canvas id="canvas" class="canvas" width="1400" height="700"></canvas>
+		<script type="text/javascript">
+
+			var canvas = document.getElementById("canvas")
+			var can = canvas.getContext("2d")
+			var ballsArray = []  
+			var linesArray = []
+			var unitsArray = []
+			var factorysArray = []
+			var mineralsArray = []
+			var minesArray = []
+			var turretsArray = []
+			var gameTickRate = 10 // 1000/x times per second
+			var ballIdDummy = unitIdDummy = mineralIdDummy = 0
+
+			var ballDummy = function() {
+				ballIdDummy ++
+				return ballIdDummy
+			}
+
+			var unitDummy = function() {
+				unitIdDummy ++
+				return unitIdDummy
+			}
+
+			var mineralDummy = function() {
+				mineralIdDummy ++
+				return mineralIdDummy
+			}
+
+			var randomColor = function() {
+  				var letters = "0123456789ABCDEF"
+ 				var color = "#"
+  				for (var i = 0; i < 6; i++) {
+    				color += letters[Math.floor(Math.random() * letters.length)]
+  				}
+  				return color
+			}
+
+			var randomNumber = function(min, max) {
+				return Math.floor(Math.random() * (max - min + 1)) + min
+			}
+
+			var drawBall = function(x, y, radius, color) {
+				can.fillStyle = String(color)
+				can.beginPath()
+				can.arc(x, y, radius, 0, 2 * Math.PI)
+				can.fill()
+			}
+
+			var drawRect = function(x, y, width, height, color) {
+				can.fillStyle = color
+				can.fillRect(x, y, width, height)
+			}
+
+			var drawRectPoints = function(x1, y1, x2, y2, color) {
+				can.fillStyle = color
+				width = x2 - x1
+				height = y2 - y1
+				can.fillRect(x1, x2, width, height)
+			}
+
+			var drawLine2 = function(x1, y1, x2, y2, color) {
+				can.strokeStyle = color
+				can.beginPath()
+				can.moveTo(x1, y1)
+				can.lineTo(x2, y2)
+				can.stroke()
+			}
+
+			var drawLine = function(x, y, length, direction, color = "black") {
+				var x2 = x + Math.cos(toRad(direction)) * length
+				var y2 = y - Math.sin(toRad(direction)) * length
+		
+				can.strokeStyle = color
+				can.beginPath()
+				can.moveTo(x, y)
+				can.lineTo(x2, y2)
+				can.stroke()
+			}
+
+
+
+			var pointer = function() {
+				this.x = 0
+				this.y = 0
+				this.selected = [] 
+				this.box = {x: 0, y: 0, x2: 0, y2: 0, draw: false}
+
+				this.down = function() {
+					this.box.draw = true
+					this.box.x = this.x
+					this.box.y = this.y
+				}
+				this.up = function() {
+					this.box.draw = false
+
+					if(this.selected.length === 0) {
+						for(var i = 0; i < unitsArray.length; i++) {
+							if(unitsArray[i].team === "blue") {
+								if(this.box.x < unitsArray[i].x && unitsArray[i].x < this.x || this.box.x > unitsArray[i].x && unitsArray[i].x > this.x) {
+									if(this.box.y < unitsArray[i].y && unitsArray[i].y < this.y || this.box.y > unitsArray[i].y && unitsArray[i].y > this.y) {
+										this.selected.push(unitsArray[i])
+										unitsArray[i].appearance.outline = "chartreuse"
+									}
+								}
+							}
+						}
+					} else if(this.selected.length !== 0) {
+						for(var i = 0; i < this.selected.length; i++) {
+								var closestX = Math.round(this.x / 10) * 10
+								var closestY = Math.round(this.y / 10) * 10
+								var closestGrid = {x: closestX, y:closestY}
+								this.selected[i].path.path = closestGrid
+								this.selected[i].path.hasPath = true
+								this.selected[i].appearance.outline = this.selected[i].team
+						}
+						this.selected = []
+					}
+				}
+			}
+			var mouse = new pointer()
+
+			var ball = function(x, y, speed, direction, origin, radius = 1, color = "black", id = ballDummy()) {
+				this.x = x
+				this.y = y
+				this.color = color
+				this.radius = radius
+				this.speed = speed
+				this.direction = direction
+				this.id = id
+				this.origin = origin //entity from which created
+				this.bounces = 0
+				this.bounceLimit = 0
+				this.move = function() {
+					
+					
+					for(var i = 0; i < unitsArray.length; i++) {
+						if(this.origin.team !== unitsArray[i].team) {
+							if(distanceBetween(this, unitsArray[i]) < this.radius + unitsArray[i].appearance.radius) {
+								unitsArray[i].takeDamage(this.origin.traits.damage)
+								ballsArray.splice(findId(ballsArray, this.id), 1)
+								delete this
+							}
+						}
+					}
+					
+					
+					if(this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) { //boundries
+						if(this.bounces < this.bounceLimit) {
+
+							if(this.x > canvas.width) { //bouncing
+								this.direction = 180 - this.direction
+							} else if(this.y < 0) {
+								this.direction = 360 - this.direction
+							} else if(this.x < 0) {
+								this.direction = 180 - this.direction
+							} else if(this.y > canvas.height) {
+								this.direction = 360 - this.direction
+							}
+							this.direction = standardAngle(this.direction)
+							this.bounces ++
+							
+						} else {
+							delete this
+							ballsArray.splice(findId(ballsArray, this.id), 1)
+						}
+					}
+
+					var xSpeed = this.speed * (Math.cos(this.direction * (Math.PI / 180)) * (180 / Math.PI))
+					var ySpeed = this.speed * (Math.sin(this.direction * (Math.PI / 180)) * (180 / Math.PI))
+					this.x += xSpeed
+					this.y -= ySpeed
+
+					drawBall(this.x, this.y, this.radius, this.color) //draws self
+				}
+				ballsArray.push(this) //add ball to array
+			}
+
+			/*var line = function(x, y, length, direction, color) {
+				this.x = x
+				this.y = y 
+				this.length = length
+				this.direction = direction
+				this.color = color
+				this.x2 = this.x + Math.cos(direction) * length
+				this.y2 = this.y - Math.sin(direction) * length
+
+				drawLine(x, y, this.x2, this.y2, color)
+				linesArray.push(this)
+			}*/
+
+			var player = function(x, y, radius, color) {
+				this.type = "player"
+				this.x = x
+				this.y = y
+				this.radius = radius
+				this.color = color
+				this.direction = 90
+				this.lineLength = 20
+				this.appearance = {
+					radius: this.radius
+				}
+				this.draw = function() {
+					this.direction = angleBetween(this, mouse)
+					drawBall(this.x, this.y, this.radius, this.color)
+					drawLine(this.x, this.y, this.lineLength, this.direction)
+				}
+				this.shoot = function() {
+					new ball((this.x) + (Math.cos(toRad(this.direction)) * this.lineLength), (this.y) - (Math.sin(toRad(this.direction)) * this.lineLength), 1, "black", ballDummy(), 0.1, this.direction, this)
+				}
+				
+			}
+
+			var unit = function(x, y, team = "blue", type = "ranged", path = {x: x, y: y}, target = undefined, id = unitDummy()) {
+				this.x = x
+				this.y = y
+				this.team = team
+				this.type = type
+				this.id = id
+				this.path = {path: path, hasPath: true}
+				this.reloading = false
+
+				this.speed = 0
+				this.direction = 0
+				this.target = target
+				this.items = []
+				this.inTurret = false
+
+				this.health = 100
+
+				this.traits = { //traits
+					speed: 0.02, 
+					strafeSpeed: randomNumber(0.005, 0.01), 
+					sightRange: 300, 
+					attackRange: 100, 
+					damage: 30, 
+					rateOfAttack: 0.5 * 1000, 
+					reloadTime: 0.3 * 1000, 
+					bulletSpeed: 0.1,
+					strafeDirection: 0
+				}
+
+				this.appearance = { //graphical traits
+					radius: 5,
+					color: randomColor(),
+					outline: team,
+					lineLength: 5 * 3,
+					lineLengthOriginal: 5 * 3
+				}
+
+				this.shoot = function() {
+
+					new ball(
+						(this.x) + (Math.cos(toRad(angleBetween(this, this.target))) *  this.appearance.lineLength),
+						(this.y) - (Math.sin(toRad(angleBetween(this, this.target))) *  this.appearance.lineLength),
+						this.traits.bulletSpeed,
+						angleBetween(this, this.target),
+						this
+					)
+					this.reloading = true
+					this.traits.strafeDirection = randomNumber(0, 1)
+					
+				}
+
+				this.stab = function() {
+
+					this.target.takeDamage(this.traits.damage)
+					this.appearance.lineLength = 0
+					this.reloading = true
+
+					this.traits.strafeDirection = randomNumber(0, 1)
+
+				}
+
+				this.move = function() {
+
+					if(this.target !== undefined && this.type !== "worker" || this.target !== undefined && this.items.length === 0) { //has target
+						if(this.target.health > 0 || this.target.onGround) { //target alive or mineral on ground
+
+							this.speed = this.traits.speed
+							this.direction = angleBetween(this, this.target)
+	
+							if(distanceBetween(this, this.target) < this.traits.attackRange + this.target.appearance.radius) { //straffing //comes in attack range
+								
+								if(this.type !== "worker") { //attacking
+									if(!this.reloading) { //not reloading
+										window.setTimeout(function() {
+											This.reloading = false
+										}, this.traits.rateOfAttack)
+	
+										if(this.type === "ranged") {
+											this.shoot()
+										} else if(this.type === "melee") {
+											for(var i = 0; i < 10; i ++) {
+												window.setTimeout(function() {
+													This.appearance.lineLength += This.appearance.lineLengthOriginal / 10
+												}, this.traits.rateOfAttack / 10 * i)
+												
+											}
+											this.stab()
+										}
+										
+									}
+								} else if(this.type === "worker") { //pick up item
+									if(this.items.length === 0) {
+										this.pickUp(this.target)
+									}
+									
+								}
+
+								
+								if(this.type !== "worker") { //strafing
+									this.speed = this.traits.strafeSpeed
+		
+									if(this.target.health > 0) { //target is alive
+										this.direction += [90, -90][this.traits.strafeDirection]
+		
+									} else { //target is dead
+										this.target = undefined
+									}
+								}
+
+								
+	
+							} else if(distanceBetween(this, this.target) < this.traits.sightRange) { //tracking
+								this.direction = angleBetween(this, this.target)
+	
+							} else { //target outside range (idle)
+								this.target = undefined
+								this.speed = 0
+	
+							}
+
+						} else {
+							this.target = undefined
+						}
+						
+
+					} else if(this.target === undefined || this.items.length === 1) { //idling //pathing
+						this.speed = 0
+						
+
+						if(this.type !== "worker") { //find target
+							var closestTarget = {target: undefined, distance: this.traits.sightRange}
+							if(this.type === "ranged" && this.inTurret === false) { //find turret
+								for(var i = 0; i < turretsArray.length; i++) {
+									if(turretsArray[i].unit.length === 0) {
+										if(distanceBetween(this, turretsArray[i]) < closestTarget.distance) {
+											closestTarget.target = turretsArray[i]
+											closestTarget.distance = distanceBetween(this, turretsArray[i])
+										}
+									}
+									
+								}
+
+								if(closestTarget.target !== undefined) {
+									this.path.path = {x: closestTarget.target.x, y: closestTarget.target.y}
+									this.path.hasPath = true
+								}
+							}
+							var closestTarget = {target: undefined, distance: this.traits.sightRange}
+							if(this.target === undefined) {
+								for(var i = 0; i < unitsArray.length; i++) {
+									if(unitsArray[i].team !== this.team) {
+										if(distanceBetween(this, unitsArray[i]) < closestTarget.distance) {
+											closestTarget.target = unitsArray[i]
+											closestTarget.distance = distanceBetween(this, unitsArray[i])
+										}
+									}
+								}
+							}
+							this.target = closestTarget.target
+							
+						} else if(this.type === "worker" && this.items.length !== 1) {
+							var closestTarget = {target: undefined, distance: this.traits.sightRange}
+							for(var i = 0; i < mineralsArray.length; i++) {
+								if(mineralsArray[i].onGround) {
+									if(distanceBetween(this, mineralsArray[i]) < closestTarget.distance) {
+										closestTarget.target = mineralsArray[i]
+										closestTarget.distance = distanceBetween(this, mineralsArray[i])
+									}
+								}
+								
+							}
+							this.target = closestTarget.target
+						}
+
+						
+						
+
+
+
+						if(this.target === undefined || this.items.length === 1) { //no target found (pathing)
+
+							if(this.items.length === 1) {
+
+								var closestTarget = {target: undefined, distance: this.traits.sightRange}
+								for(var i = 0; i < factorysArray.length; i++) { //find closest factory
+									if(factorysArray[i].team === this.team && factorysArray[i].items.length !== 4) {
+										if(distanceBetween(this, factorysArray[i]) < closestTarget.distance) {
+											closestTarget.target = factorysArray[i]
+											closestTarget.distance = distanceBetween(this, factorysArray[i])
+										}
+									}
+								}
+
+								if(closestTarget.target !== undefined) { //move to closest factory
+					
+									this.path.path = closestTarget.target.dropoff
+									this.path.hasPath = true
+									this.target = undefined
+								}
+							}
+						
+				
+
+							
+
+							if(this.path.hasPath) { //has a path
+								if(this.x === this.path.path.x && this.y === this.path.path.y) { //reaches path
+									this.path.hasPath = false
+									
+								} else { //move to path
+
+									this.speed = this.traits.speed
+									this.direction = angleBetween(this, this.path.path)
+									
+									if(this.items.length === 1) { //move held item
+										this.items[0].x = this.x + (Math.cos(toRad(this.direction)) * this.appearance.lineLength * 4 / 4)
+										this.items[0].y = this.y - (Math.sin(toRad(this.direction)) * this.appearance.lineLength * 4 / 4)
+									}
+
+									if(distanceBetween(this, this.path.path) < 1) { //close enough to path
+										this.speed = 0
+										this.path.hasPath = false
+										this.x = this.path.path.x
+										this.y = this.path.path.y
+
+										if(this.items.length === 1) {
+											this.items[0].x = this.path.path.x
+											this.items[0].y = this.path.path.y
+											this.dropoff(this.items[0])
+
+											
+										}
+
+										for(var i = 0; i < turretsArray.length; i++) { //find if in turret
+											if(distanceBetween(this, turretsArray[i]) === 0) {
+												turretsArray[i].unit.push(this)
+												this.inTurret = true
+												this.traits.attackRange = this.traits.attackRange * 2
+												this.traits.sightRange = this.traits.attackRange
+											}		
+										}
+									}
+								}
+
+								
+
+								
+
+							} else if(!this.path.hasPath) { //has no path
+
+								var closestGrid = {x: Math.round(this.x / 10) * 10, y: Math.round(this.y / 10) * 10}
+
+								if(this.x !== closestGrid.x || this.y !== closestGrid.y) { //not grid aligned
+									this.path.path = closestGrid
+									this.path.hasPath = true
+
+								} else { //open space
+									for(var i = 0; i < unitsArray.length; i++) {
+										if(this.x === unitsArray[i].x && this.y === unitsArray[i].y && unitsArray[i].id !== this.id && unitsArray[i].path.hasPath === false) { // spreading
+											this.path.path = [{x: this.x, y: this.y - 20}, {x: this.x + 20, y: this.y}, {x: this.x, y: this.y + 20}, {x: this.x - 20, y: this.y}][randomNumber(0, 3)]
+											nice = true
+											while(nice) {
+												var found = false
+												for(var f = 0; f < unitsArray.length; f++) {
+													if(this.path.path.x === unitsArray[f].x && this.path.path.y === unitsArray[f].y && unitsArray[f].id !== this.id) {
+														found = true
+													} 
+												}
+
+												if(found) {
+													this.path.path = [
+														{x: this.path.path.x, y: this.path.path.y - 20}, 
+														{x: this.path.path.x + 20, y: this.path.path.y}, 
+														{x: this.path.path.x, y: this.path.path.y + 20}, 
+														{x: this.path.path.x - 20, y: this.path.path.y}
+													][randomNumber(0, 3)]
+													f = unitsArray.length
+												} else {
+														nice = false
+												}
+
+											}
+											this.path.hasPath = true
+											i = unitsArray.length
+										}
+									}
+								}
+							}
+						}
+					}
+
+					
+					if(!this.inTurret) { //move unit
+						var xSpeed = this.speed * (Math.cos(this.direction * (Math.PI / 180)) * (180 / Math.PI))
+						var ySpeed = this.speed * (Math.sin(this.direction * (Math.PI / 180)) * (180 / Math.PI))
+	
+						if(this.x + xSpeed + this.appearance.radius < canvas.width && this.x + xSpeed + this.appearance.radius > 0) {
+							this.x += xSpeed
+						}
+						if(this.y - ySpeed + this.appearance.radius < canvas.height && this.y - ySpeed + this.appearance.radius > 0) {
+							this.y -= ySpeed
+						}
+					}
+					
+
+					drawBall(this.x, this.y, this.appearance.radius + 1, this.appearance.outline) //outline
+					drawBall(this.x, this.y, this.appearance.radius, this.appearance.color) //body
+
+					drawRect(this.x - this.appearance.radius - 1, this.y + this.appearance.radius + 2, ((this.appearance.radius + 1) * 2) * (this.health / 100), 1, this.team) //Health Bar
+
+
+					//draw class items 
+					if(this.type === "worker") { //wrench
+
+						var x1 = this.x + (Math.cos(toRad(this.direction)) * this.appearance.lineLength * 3 / 4)
+						var y1 = this.y - (Math.sin(toRad(this.direction)) * this.appearance.lineLength * 3 / 4)
+						drawLine(x1, y1, this.appearance.lineLength / 4, this.direction + 30)
+						drawLine(x1, y1, this.appearance.lineLength / 4, this.direction - 30)
+						drawLine(this.x, this.y, this.appearance.lineLength * 3 / 4, this.direction)
+
+					} else if(this.type === "melee") { //spike
+
+						if(this.target !== undefined) {
+							var x1 = this.x + (Math.cos(toRad(angleBetween(this, this.target))) * this.appearance.lineLength)
+							var y1 = this.y - (Math.sin(toRad(angleBetween(this, this.target))) * this.appearance.lineLength)
+							drawLine(x1, y1, this.appearance.lineLength / 4, angleBetween(this, this.target) + 150)
+							drawLine(x1, y1, this.appearance.lineLength / 4, angleBetween(this, this.target) - 150)
+							drawLine(this.x, this.y, this.appearance.lineLength, angleBetween(this, this.target))
+						} else {
+							var x1 = this.x + (Math.cos(toRad(this.direction)) * this.appearance.lineLength)
+							var y1 = this.y - (Math.sin(toRad(this.direction)) * this.appearance.lineLength)
+							drawLine(x1, y1, this.appearance.lineLength / 4, this.direction + 150)
+							drawLine(x1, y1, this.appearance.lineLength / 4, this.direction - 150)
+							drawLine(this.x, this.y, this.appearance.lineLength, this.direction)
+						}
+
+					} else if(this.type === "ranged") { //barrel
+
+						if(this.target !== undefined) {
+							drawLine(this.x, this.y, this.appearance.lineLength, angleBetween(this, this.target))
+						} else {
+							drawLine(this.x, this.y, this.appearance.lineLength, this.direction)
+
+						}
+					}
+
+				}
+
+				this.pickUp = function(item) { //pickup mineral
+		
+					var closestTarget = {target: undefined, distance: this.traits.sightRange}
+					for(var i = 0; i < factorysArray.length; i++) { //find closest factory
+						if(factorysArray[i].team === this.team && factorysArray[i].items.length !== 4) {
+							if(distanceBetween(this, factorysArray[i]) < closestTarget.distance) {
+								closestTarget.target = factorysArray[i]
+								closestTarget.distance = distanceBetween(this, factorysArray[i])
+							}
+						}
+					}
+					if(closestTarget.target !== undefined) {
+
+						this.items = []
+						this.items.push(item)
+						this.items[0].onGround = false
+
+						this.path.path = closestTarget.target.dropoff
+						this.path.hasPath = true
+						this.target = undefined
+					}
+				}
+
+				this.dropoff = function(item) { //droppoff mineral
+					var closestTarget = {target: undefined, distance: this.traits.sightRange}
+					for(var i = 0; i < factorysArray.length; i++) {
+						if(factorysArray[i].team === this.team) {
+							if(distanceBetween(this, factorysArray[i]) < closestTarget.distance) {
+								closestTarget.target = factorysArray[i]
+								closestTarget.distance = distanceBetween(this, factorysArray[i])
+							}
+						}
+					}
+					closestTarget.target.deposit(item)
+
+					this.target = undefined
+					this.items = []
+				}
+
+				this.takeDamage = function(amount) { //take damage
+					this.health -= amount
+					if(this.health <= 0) {
+						this.death()
+					}
+				}
+
+				this.death = function() { //dies
+					delete this
+					unitsArray.splice(findId(unitsArray, this.id), 1)
+					
+				}
+
+				if(this.type === "ranged") { //class specific stat changes
+
+				} else if(this.type === "melee") {
+					this.traits.attackRange = 30
+				} else if(this.type === "worker") {
+					this.traits.attackRange = 5
+				}
+
+				unitsArray.push(this)
+				var This = this
+			}
+
+
+			var factory = function(x, y, type = "ranged", team = "blue", spawnPoint = {x: x, y: y}) {
+				this.x = x
+				this.y = y
+				this.team = team
+				this.type = type
+				this.items = []
+				this.width = 40
+				this.height = 40
+
+				this.spawnPoint = spawnPoint
+
+				this.dropoff = {x: this.x + this.width / 2, y: this.y + this.height / 2}
+
+				this.draw = function() {
+
+					if(this.items.length === 4) {
+						this.spawn()
+					}
+
+					drawRect(this.x - (this.width / 2 + 1), this.y - (this.height / 2 + 1), this.width + 2, this.height + 2, "black")
+					drawRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height, "grey")
+					drawBall(this.x, this.y, 6, "black")
+					drawBall(this.x, this.y, 5, "#24dcf4")
+
+					drawBall(this.x + 15, this.y + 15, 3, "black")
+					drawBall(this.x - 15, this.y + 15, 3, "black")
+					drawBall(this.x + 15, this.y - 15, 3, "black")
+					drawBall(this.x - 15, this.y - 15, 3, "black")
+
+					drawBall(this.x + 15, this.y + 15, 2, "grey")
+					drawBall(this.x - 15, this.y + 15, 2, "grey")
+					drawBall(this.x + 15, this.y - 15, 2, "grey")
+					drawBall(this.x - 15, this.y - 15, 2, "grey")
+
+					this.dropoff = [
+						{x: this.x - 15, y: this.y - 15},
+						{x: this.x + 15, y: this.y - 15},
+						{x: this.x + 15, y: this.y + 15},
+						{x: this.x - 15, y: this.y + 15}
+					][this.items.length]
+
+				}
+
+				this.deposit = function(item) {
+					this.items.push(item)
+				}
+
+				this.spawn = function() {
+					
+					if(distanceBetween(this.items[0], this) > 2) {
+						for(var i = 0; i < this.items.length; i++) {
+							this.items[i].speed = 0.005
+							this.items[i].direction = angleBetween(this.items[i], this)
+						}
+					} else {
+						new unit(this.x, this.y, this.team, this.type, this.spawnPoint)
+						for(var i = 0; i < this.items.length; i++) {
+							this.items[i].use()
+						}
+						this.items = []
+					}
+				}
+
+				factorysArray.push(this)
+			}
+
+			var mine = function(x, y) {
+				this.x = x
+				this.y = y
+				this.width = 40
+				this.height = 40
+
+				this.draw = function() {
+					drawRect(this.x - (this.width / 2 + 1), this.y - (this.height / 2 + 1), this.width + 2, this.height + 2, "black")
+					drawRect(this.x - this.width / 2, this.y - this.height / 2, this.width, this.height, "grey")
+					drawBall(this.x, this.y, 6, "black")
+					drawBall(this.x, this.y, 5, "gold")
+
+					var hasMineral = false
+					for(var i = 0; i < mineralsArray.length; i++) {
+						if(distanceBetween(this, mineralsArray[i]) === 0) {
+							hasMineral = true
+						}
+					}
+					if(!hasMineral) {
+						this.spawn()
+					}
+				}
+
+				this.spawn = function() {
+					new mineral(this.x, this.y)
+				}
+
+				minesArray.push(this)
+			}
+
+			var mineral = function(x, y) {
+				this.x = x
+				this.y = y
+				this.speed = 0
+				this.direction = 0
+				this.id = mineralDummy()
+
+				this.onGround = true
+
+				this.appearance = {
+					radius: 2,
+					outline: 1
+				}
+
+				this.move = function() {
+
+
+					var xSpeed = this.speed * (Math.cos(this.direction * (Math.PI / 180)) * (180 / Math.PI))
+					var ySpeed = this.speed * (Math.sin(this.direction * (Math.PI / 180)) * (180 / Math.PI))
+
+					this.x += xSpeed
+					this.y -= ySpeed
+
+
+					drawBall(this.x, this.y, this.appearance.radius + this.appearance.outline, "black")
+					drawBall(this.x, this.y, this.appearance.radius, "gold")
+
+				}
+
+				this.use = function() {
+					delete this
+					mineralsArray.splice(findId(mineralsArray, this.id), 1)
+				}
+
+				mineralsArray.push(this)
+			}
+
+			var turret = function(x, y) {
+				this.x = x
+				this.y = y
+
+				this.unit = []
+
+				this.draw = function() {
+
+					
+
+					if(this.unit.length === 1) {
+						if(this.unit[0].health <= 0) {
+							this.unit = []
+						} else {
+							this.unit.speed = 0
+							this.unit.x = this.x
+							this.unit.y = this.y
+						}
+						
+					}
+
+					drawBall(this.x, this.y, 6, "black")
+					drawBall(this.x, this.y, 5, "grey")
+
+				}
+
+				turretsArray.push(this)
+			}
+
+
+
+			var findId = function(array, id) {
+				var placeId;
+				for(var i = 0; i < array.length; i++) {
+					if(array[i].id === id) {
+						placeId = i
+					}
+				}
+				return placeId
+			}
+
+			var angleBetween = function(obj1, obj2) {
+				var angle = Math.atan(((obj1.y - obj2.y) / (obj2.x - obj1.x))) * (180 / Math.PI)
+				angle = standardAngle(angle)
+				
+				if(obj2.x - obj1.x <= 0 && obj1.y - obj2.y <= 0 && angle >= 0 && angle <= 90 || obj2.x - obj1.x < 0 && obj1.y - obj2.y > 0 && angle > 270 && angle < 360) {
+					angle += 180
+				}
+				return standardAngle(angle)
+			}
+
+			var distanceBetween = function(obj1, obj2) {
+				return Math.sqrt(Math.pow(obj2.y - obj1.y, 2) + Math.pow(obj2.x - obj1.x, 2))
+			}
+
+			var standardAngle = function(angle) {
+				while(angle < 0) {
+					angle += 360
+				}
+				while(angle > 360) {
+					angle -= 360
+				}
+				return angle
+			}
+
+			var toRad = function(angle) {
+				return angle * (Math.PI / 180)
+			}
+
+			var toDegree = function(angle) {
+				return angle * (180 / Math.PI)
+			}
+
+
+
+			var gameTick = function() {
+				drawRect(0, 0, canvas.width, canvas.height, "white") //clear canvas
+
+				for(var i = 0; i < 140; i++) { //draw vertical lines
+					var squareWidth = canvas.width / 140
+					drawLine(squareWidth * i, 0, canvas.height, 270, "#e3e5e8")
+				}
+				for(var i = 0; i < 70; i++) { //draw horizontal lines
+					var squareHeight = canvas.height / 70
+					drawLine(0, squareHeight * i, canvas.width, 0, "#e3e5e8")
+				}
+
+
+
+				for(var i = 0; i < ballsArray.length; i++) { //moves balls
+					ballsArray[i].move()
+				}
+
+				for(var i = 0; i < factorysArray.length; i++) { //draw factories
+					factorysArray[i].draw()
+				}
+
+				for(var i = 0; i < minesArray.length; i++) { //draw factories
+					minesArray[i].draw()
+				}
+
+				for(var i = 0; i < turretsArray.length; i++) { //draw factories
+					turretsArray[i].draw()
+				}
+
+				for(var i = 0; i < mineralsArray.length; i++) { //draw minerals
+					mineralsArray[i].move()
+				}
+
+				for(var i = 0; i < unitsArray.length; i++) { //move units
+					unitsArray[i].move()
+				}
+
+				
+
+				if(mouse.box.draw) { //draw curser box
+					drawRect(mouse.box.x, mouse.box.y, mouse.x - mouse.box.x, mouse.y - mouse.box.y, "rgba(0, 50, 100, 0.1)")
+				}
+			}
+
+
+			
+			//player1 = new player(50, 50, 10, randomColor()) //create player
+
+			//enemy1 = new enemy(canvas.width - 50, 50, 5, randomColor(), enemyDummy(), player1)
+			//friendly1 = new friendly(canvas.width * (1 / 4), canvas.height / 2, 5, randomColor(), friendlyDummy())
+			//friendly2 = new friendly(canvas.width * (2 / 4), canvas.height / 2 - 150, 5, randomColor(), friendlyDummy())
+			//enemy2 = new enemy(50, canvas.height - 50, 5, randomColor(), 1, player1)
+			//enemy3 = new enemy(50, 50, 5, randomColor(), 2, enemy2)	
+			//enemy4 = new enemy(canvas.width * (3 / 4) + 200, canvas.height / 2, 5, randomColor(), enemyDummy(), player1)
+
+			//unit1 = new unit(canvas.width / 2, canvas.height / 2, "blue")
+			//unit3 = new unit(canvas.width / 2, canvas.height / 2 + 20, "blue", "melee")
+			//unit2 = new unit((canvas.width / 2) + 250, canvas.height / 2, "red", "melee")
+
+			unit4 = new unit(randomNumber(100, 300), randomNumber(200, 400), "blue", "worker")
+			unit5 = new unit(randomNumber(100, 300), randomNumber(200, 400), "blue", "worker")
+			unit6 = new unit(randomNumber(100, 300), randomNumber(200, 400), "blue", "worker")
+			unit7 = new unit(randomNumber(100, 300), randomNumber(200, 400), "blue", "worker")
+
+			unit8 = new unit(canvas.width - randomNumber(100, 300), randomNumber(200, 400), "red", "worker")
+			unit9 = new unit(canvas.width - randomNumber(100, 300), randomNumber(200, 400), "red", "worker")
+			unit10 = new unit(canvas.width - randomNumber(100, 300), randomNumber(200, 400), "red", "worker")
+			unit11 = new unit(canvas.width - randomNumber(100, 300), randomNumber(200, 400), "red", "worker")
+
+			factory1 = new factory(300, 200, "ranged", "blue", {x: canvas.width - 200, y: 300})
+			factory2 = new factory(300, 400, "melee", "blue", {x: canvas.width - 200, y: 300})
+			mine1 = new mine(100, 300)
+
+			factory3 = new factory(canvas.width - 300, 200, "ranged", "red", {x: 200, y: 300})
+			factory4 = new factory(canvas.width - 300, 400, "melee", "red", {x: 200, y: 300})
+			mine2 = new mine(canvas.width - 100, 300)
+
+			turret1 = new turret(400, 200)
+			turret2 = new turret(400, 220)
+			turret3 = new turret(400, 180)
+
+			turret4 = new turret(400, 400)
+			turret5 = new turret(400, 420)
+			turret6 = new turret(400, 380)
+
+			turret1 = new turret(canvas.width - 400, 200)
+			turret2 = new turret(canvas.width - 400, 220)
+			turret3 = new turret(canvas.width - 400, 180)
+
+			turret4 = new turret(canvas.width - 400, 400)
+			turret5 = new turret(canvas.width - 400, 420)
+			turret6 = new turret(canvas.width - 400, 380)
+
+			window.addEventListener("keydown", function(event) { //player movements
+				/*if(event.key === "w") {
+					wInt = true
+				}
+				if(event.key === "a") {
+					aInt = true
+				}
+				if(event.key === "s") {
+					sInt = true
+				}
+				if(event.key === "d") {
+					dInt = true
+				}*/
+				/*if(event.key === " ") {
+					//player1.shoot()
+					for (var i = 0; i < 50; i++) {
+						new unit(randomNumber(0, canvas.width), randomNumber(0, canvas.height), "blue", "ranged")
+						//new unit(100, canvas.height / 2, "blue")
+						//new unit(200, (canvas.height / 50) * i, "blue", "melee")
+					}
+				}*/
+				/*if(event.key === "ArrowLeft") {
+					lInt = true
+				}
+				if(event.key === "ArrowRight") {
+					rInt = true
+				}*/
+				/*if(event.key === "/") {
+			        for (var i = 0; i < 50; i++) {
+			        	new unit(randomNumber(0, canvas.width), randomNumber(0, canvas.height), "red", "melee")
+						//new unit(canvas.width - 100, canvas.height / 2, "red")
+						//new unit(canvas.width - 200, (canvas.height / 50) * i, "red", "ranged")
+					}
+				}
+				if(event.key === ".") {
+			        for (var i = 0; i < 4; i++) {
+			        	new mineral(randomNumber(0, canvas.width), randomNumber(0, canvas.height))
+						//new unit(canvas.width - 100, canvas.height / 2, "red")
+						//new unit(canvas.width - 200, (canvas.height / 50) * i, "red", "ranged")
+					}
+				}*/
+			})
+
+			window.addEventListener("keyup", function(event) { //player movements
+				/*if(event.key === "w") {
+					wInt = false
+				}
+				if(event.key === "a") {
+					aInt = false
+				}
+				if(event.key === "s") {;
+					sInt = false
+				}
+				if(event.key === "d") {
+					dInt = false
+				}
+				if(event.key === "ArrowLeft") {
+					lInt = false
+				}
+				if(event.key === "ArrowRight") {
+					rInt = false
+				}*/
+			})
+
+			canvas.addEventListener("mousemove", function(event) {
+				var canObj = canvas.getBoundingClientRect()
+				mouse.x = event.clientX - canObj.left
+				mouse.y = event.clientY - canObj.top
+			})
+			canvas.addEventListener("mousedown", function(event) {
+				mouse.down()
+			})
+			canvas.addEventListener("mouseup", function(event) {
+				mouse.up()
+			})
+
+			setInterval(gameTick, gameTickRate) //game tick
+		</script>
+	</body>
+</html>
